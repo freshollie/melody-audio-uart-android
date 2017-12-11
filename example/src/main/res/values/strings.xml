@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Melody Bluetooth Controller</string>
+    <string name="notification_channel_name">Melody connected</string>
+    <string name="notification_channel_description">Shows the status of the melody connection</string>
+    <string name="notification_title">Melody Connection</string>
+    <string name="notification_connected_text">Connected</string>
+    <string name="notification_text_connecting">Connecting</string>
+    <string name="notification_text_connection_issues">Connection issues</string>
+</resources>
