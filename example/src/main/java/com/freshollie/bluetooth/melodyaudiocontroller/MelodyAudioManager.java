@@ -1,169 +1,107 @@
 package com.freshollie.bluetooth.melodyaudiocontroller;
 
+import android.content.Context;
 import android.util.Log;
 
+import com.freshollie.uart.melodyaudio.MelodyAudioUartConnection;
 import com.freshollie.uart.melodyaudio.MelodyAudioUartInterface;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.PriorityQueue;
 
 /**
  * Created by freshollie on 09.12.17.
  */
 
-public class MelodyAudioManager implements MelodyAudioUartInterface.ResponseListener {
+public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUartInterfaceCallback implements
+        MelodyAudioUartConnection.ConnectionStateChangeListener {
     private static final String TAG = MelodyAudioManager.class.getSimpleName();
 
+    private boolean running;
+
+    private MelodyAudioUartConnection melodyAudioUartConnection;
     private final MelodyAudioUartInterface melodyAudioUartInterface;
 
     private final PriorityQueue<String> pendingCommands;
 
-    public MelodyAudioManager(MelodyAudioUartInterface melodyInterface) {
+    public MelodyAudioManager(Context context) {
         pendingCommands = new PriorityQueue<>();
 
-        melodyAudioUartInterface = melodyInterface;
-        melodyAudioUartInterface.registerResponseListener(this);
-        pullConfig();
+        melodyAudioUartConnection = new MelodyAudioUartConnection(context, 115200);
+        melodyAudioUartConnection.registerConnectionChangeListener(this);
+
+        melodyAudioUartInterface = melodyAudioUartConnection.getInterface();
+        melodyAudioUartInterface.registerMelodyAudioCallback(this);
+
+        running = false;
     }
 
-    public void registerMelodyAudioCallback(MelodyAudioCallback melodyAudioCallback) {
-
-    }
-
-    public void pullConfig() {
-        sendCommand(MelodyAudioUartInterface.Commands.CONFIG);
-    }
-
-    private void sendCommand(String command) {
-        sendCommand(command, "");
-    }
-
-    private void sendCommand(String command, String args) {
-        pendingCommands.add(command);
-        melodyAudioUartInterface.sendCommand(command + " " + args);
-    }
-
-    private void onOkReceived() {
-        String command = pendingCommands.poll();
-
-    }
-
-    private void onErrorReceived(String data) {
-        String hexCode =
-                data.replace(MelodyAudioUartInterface.ResponseKeys.ERROR, "");
-        int code = Integer.parseInt(hexCode, 16);
-        String command = pendingCommands.poll();
-
-    }
-
-    private void onPreferenceReceived(String data) {
-        String[] pair = data.split("=");
-        String key = pair[0];
-        String value = pair[1];
-
-    }
-
-    private void onABSVolReceived(String data) {
-        String[] values = data.split(" ");
-        int linkId = Integer.valueOf(values[1]);
-        int volume = Integer.valueOf(values[2]);
-
-    }
-
-    private void onAVRCPReceived(String data) {
-        String[] values = data.split(" ");
-        String avrcpType = values[0];
-        int linkId = Integer.valueOf(values[1]);
-
-    }
-
-    private void onCallStatusReceived(String data) {
-        String[] values = data.split(" ");
-        int type = values[1].equals("HFPAG") ?
-                MelodyAudioUartInterface.BluetoothProfiles.HFPAG :
-                MelodyAudioUartInterface.BluetoothProfiles.HFP;
-
-        int linkId = Integer.parseInt(values[2]);
-
-    }
-
-    private void onCallerNumberReceived(String data) {
-        String[] values = data.split(" ");
-        int linkId = Integer.parseInt(values[0]);
-        String number = values[1];
-
-    }
-
-    private void onA2DPStreamStatusReceived(String data) {
-        String[] values = data.split(" ");
-
-        String a2dpStreamType = values[0];
-        int linkId = Integer.parseInt(values[1]);
-
-    }
-
-    private void routeResponse(String response) {
-        Log.d(TAG, "Route response " + response);
-        Log.d(TAG, response);
-
-
-        if (response.equals(MelodyAudioUartInterface.ResponseKeys.OK)) {
-
-        } else if (response.contains("=")) {
-            // Preference response
-            onPreferenceReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseKeys.ERROR)) {
-            onErrorReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseKeys.PENDING)) {
-            onErrorReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseTypes.AVRCP)) {
-            onAVRCPReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseKeys.ABS_VOL)) {
-            onABSVolReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseTypes.CALL)) {
-            onCallStatusReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseKeys.CALLER_NUMBER)) {
-            onCallerNumberReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseTypes.A2DP_STREAM)) {
-            onCallerNumberReceived(response);
-
-        } else if (response.startsWith(MelodyAudioUartInterface.ResponseKeys.CALLER_NUMBER)) {
-            onCallerNumberReceived(response);
-
+    public void start() {
+        if (!running) {
+            running = true;
+            melodyAudioUartConnection.open();
         }
     }
 
+    public void stop() {
+        if (running) {
+            melodyAudioUartConnection.close();
+        }
+    }
 
     @Override
-    public void onResponse(String response) {
-        Log.d("Response", response);
-        routeResponse(response);
+    public void onLinkStatusReceived(int linkId, String status, String linkType, String address, String[] extras) {
+        Log.d(TAG, "Link status " + linkId + " " + address);
     }
 
-    public void close() {
-        melodyAudioUartInterface.unregisterResponseListener(this);
+    @Override
+    public void onCallStatusReceived(int linkId, int linkType, String callStatus) {
+        Log.d(TAG, "Call status " + callStatus);
     }
 
-    public static class MelodyAudioCallback {
-        public void onAVRCPReceived(int linkId, String avrcpType) {}
+    @Override
+    public void onCallerNumberReceived(int linkId, String number) {
+        Log.d(TAG, "Someone is calling! " + number);
+    }
 
-        public void onABSVolReceived(int linkId, int volume) {}
+    @Override
+    public void onListReceived(String address, String[] supportedProfiles) {
+        Log.d(TAG, "Saved device: " + address);
+        Log.d(TAG, "Getting name");
+        melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.NAME, address);
+    }
 
-        public void onCallStatusReceived(int linkId, String callStatus) {}
+    @Override
+    public void onNameReceived(String address, String name) {
+        Log.d(TAG, "Device name " + name);
+    }
 
-        public void onCallerNumberReceived(int linkId, String number)  {}
+    @Override
+    public void onPreferenceReceived(String key, String value) {
+        Log.d(TAG, "Preference received " + key + ": " + value);
+    }
 
-        public void onPreferenceReceived(String key, String value) {}
+    @Override
+    public void onAVRCPReceived(int linkId, String avrcpType, String[] extras) {
+        Log.d(TAG, "ARCP received: " + linkId + " " + avrcpType + " " + Arrays.toString(extras));
 
-        public void onOKReceived(String command) {}
+    }
 
-        public void onErrorReceived(String command, int code) {}
+    @Override
+    public void onErrorReceived(int code) {
+        if (code == MelodyAudioUartInterface.Errors.NAME_NOT_FOUND) {
+            Log.d(TAG, "Could not find device name");
+        }
+    }
+
+    @Override
+    public void onConnectionStateChange(int newState) {
+        if (newState == MelodyAudioUartConnection.STATE_CONNECTED) {
+            Log.d(TAG, "Connected");
+            melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.LIST);
+            melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.STATUS);
+            melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.GET, MelodyAudioUartInterface.ConfigKeys.NAME);
+        }
     }
 }

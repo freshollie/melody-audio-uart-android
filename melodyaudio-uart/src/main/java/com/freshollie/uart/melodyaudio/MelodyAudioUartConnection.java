@@ -74,7 +74,7 @@ public class MelodyAudioUartConnection {
     private final ArrayList<ConnectionStateChangeListener> connectionStateChangeListeners = new ArrayList<>();
 
     public interface ConnectionStateChangeListener {
-        void onChange(int newState);
+        void onConnectionStateChange(int newState);
     }
 
     /**
@@ -163,7 +163,6 @@ public class MelodyAudioUartConnection {
 
     private UsbDevice getUsbSerialDevice() {
         for (UsbDevice device: usbManager.getDeviceList().values()) {
-            Log.e(TAG, device.toString());
             if (device.getProductId() == PRODUCT_ID &&
                     device.getVendorId() == VENDOR_ID) {
                 return device;
@@ -266,7 +265,7 @@ public class MelodyAudioUartConnection {
                 mainThread.post(new Runnable() {
                     @Override
                     public void run() {
-                        changeListener.onChange(state);
+                        changeListener.onConnectionStateChange(state);
                     }
                 });
             }
@@ -439,6 +438,9 @@ public class MelodyAudioUartConnection {
         void open() {
             if (serialDevice != null) {
                 open = true;
+                // Connection is starting so we don't need the data from before
+                melodyAudioUartInterface.reset();
+
                 serialDevice.open();
                 serialDevice.setBaudRate(baudRate);
                 serialDevice.read(this);

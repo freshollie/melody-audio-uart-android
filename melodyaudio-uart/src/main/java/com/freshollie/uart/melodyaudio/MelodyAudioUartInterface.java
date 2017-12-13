@@ -3,7 +3,7 @@ package com.freshollie.uart.melodyaudio;
 import android.util.Log;
 
 import java.util.ArrayList;
-import java.util.PriorityQueue;
+import java.util.Arrays;
 
 /**
  * Created by freshollie on 08.12.17.
@@ -35,10 +35,20 @@ public class MelodyAudioUartInterface {
         public static final String NAME_SHORT = "NAME_SHORT";
     }
 
+    public static class Values {
+        public static final String ON = "ON";
+        public static final String OFF = "OFF";
+    }
+
+    public static class Errors {
+        public static final int NAME_NOT_FOUND = 25;
+    }
+
     public static class Commands {
         public static final String RESET = "RESET";
 
         public static final String CONFIG = "CONFIG";
+        public static final String GET = "GET";
         public static final String SET = "SET";
         public static final String WRITE = "WRITE";
 
@@ -49,6 +59,8 @@ public class MelodyAudioUartInterface {
 
         public static final String CALL = "CALL";
         public static final String MEDIA = "MEDIA";
+
+        public static final String DISCOVERABLE = "DISCOVERABLE";
     }
 
     public static class ResponseTypes {
@@ -57,6 +69,8 @@ public class MelodyAudioUartInterface {
         public static final String PB = "PB_PULL";
         public static final String OPEN = "OPEN";
         public static final String A2DP_STREAM = "A2DP_STREAM";
+        public static final String PAIR = "PAIR";
+        public static final String MAP = "MAP";
     }
 
     public static class ResponseKeys {
@@ -95,7 +109,6 @@ public class MelodyAudioUartInterface {
 
         public static final String LINK_LOSS = "LINK_LOSS";
 
-        public static final String MAP = "MAP";
         public static final String MAP_NEW_SMS = "MAP_NEW_SMS";
         public static final String MAP_MSG_BEGIN = "MAP_MSG_BEGIN";
         public static final String MAP_MSG_END = "MAP_MSG_END";
@@ -105,7 +118,6 @@ public class MelodyAudioUartInterface {
         public static final String OPEN_ERROR = "OPEN_ERROR";
         public static final String OPEN_OK = "OPEN_OK";
 
-        public static final String PAIR = "PAIR";
         public static final String PAIR_ERROR = "PAIR_ERROR";
         public static final String PAIR_OK = "PAIR_OK";
         public static final String PAIR_PASSKEY = "PAIR_PASSKEY";
@@ -115,12 +127,15 @@ public class MelodyAudioUartInterface {
         public static final String PB_PULL_END = "PB_PULL_END";
         // Pull done
         public static final String PB_PULL_OK = "PB_PULL_OK";
+
+        public static final String STATE = "STATE";
+        public static final String LINK = "LINK";
+        public static final String LIST = "LIST";
     }
 
     // Stores the current response as we receive it
     private StringBuilder responseLineBuilder;
 
-    private final PriorityQueue<String> pendingCommands;
     private MelodyAudioUartConnection melodyAudioUartConnection;
     private final ArrayList<MelodyAudioUartInterfaceCallback> interfaceCallbacks;
 
@@ -128,43 +143,40 @@ public class MelodyAudioUartInterface {
 
     MelodyAudioUartInterface(MelodyAudioUartConnection connection) {
         melodyAudioUartConnection = connection;
+        interfaceCallbacks = new ArrayList<>();
+        reset();
+    }
 
+    void reset() {
         responseLineBuilder = new StringBuilder();
         receivingPBDataLinkId = -1;
-
-        interfaceCallbacks = new ArrayList<>();
-        pendingCommands = new PriorityQueue<>();
     }
 
     private void onOkReceived() {
-        String command = pendingCommands.poll();
 
         synchronized (interfaceCallbacks) {
             for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
-                callback.onOKReceived(command);
+                callback.onOKReceived();
             }
         }
     }
 
     private void onErrorReceived(String data) {
         String hexCode =
-                data.replace(ResponseKeys.ERROR, "");
+                data.replace(ResponseKeys.ERROR + " " + "0x", "");
         int code = Integer.parseInt(hexCode, 16);
-        String command = pendingCommands.poll();
 
         synchronized (interfaceCallbacks) {
             for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
-                callback.onErrorReceived(command, code);
+                callback.onErrorReceived(code);
             }
         }
     }
 
     private void onPendingReceived(String data) {
-        String command = pendingCommands.poll();
-
         synchronized (interfaceCallbacks) {
             for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
-                callback.onPendingReceived(command);
+                callback.onPendingReceived();
             }
         }
     }
@@ -196,11 +208,23 @@ public class MelodyAudioUartInterface {
     private void onAVRCPReceived(String data) {
         String[] values = data.split(" ");
         String avrcpType = values[0];
-        int linkId = Integer.valueOf(values[1]);
+
+        int linkId = -1;
+        String[] extras = new String[0];
+
+        // For some reason media doesn't contain the link id?
+        if (!avrcpType.equals(ResponseKeys.AVRCP_MEDIA)) {
+            linkId = Integer.valueOf(values[1]);
+            if (values.length > 2) {
+                extras = Arrays.copyOfRange(values, 2, values.length);
+            }
+        } else {
+            extras = Arrays.copyOfRange(values,1, values.length);
+        }
 
         synchronized (interfaceCallbacks) {
             for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
-                callback.onAVRCPReceived(linkId, avrcpType);
+                callback.onAVRCPReceived(linkId, avrcpType, extras);
             }
         }
     }
@@ -281,11 +305,78 @@ public class MelodyAudioUartInterface {
         }
     }
 
+    private void onNameReceived(String data) {
+        String address = data.split(" ")[1];
+        String name = data.split("\"")[1];
+
+        synchronized (interfaceCallbacks) {
+            for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
+                callback.onNameReceived(address, name);
+            }
+        }
+    }
+
+    private String extractValueFromStatus(String status) {
+        return status.split("\\[")[1].split("]")[0];
+    }
+
+    private void onLinkLossReceived(String data) {
+        String[] values = data.split(" ");
+        int linkId = Integer.parseInt(values[1]);
+
+        synchronized (interfaceCallbacks) {
+            for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
+                callback.onLinkLossReceived(linkId);
+            }
+        }
+    }
+
+    private void onStatusReceived(String data) {
+        String[] values = data.split(" ");
+        int numConnected = Integer.parseInt(extractValueFromStatus(values[1]));
+        boolean connectable = extractValueFromStatus(values[2]).equals(Values.ON);
+        boolean discoverable = extractValueFromStatus(values[3]).equals(Values.ON);
+        String ble = extractValueFromStatus(values[4]);
+
+        synchronized (interfaceCallbacks) {
+            for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
+                callback.onStatusReceived(numConnected, connectable, discoverable, ble);
+            }
+        }
+    }
+
+    private void onLinkStatusReceived(String data) {
+        String[] values = data.split(" ");
+        int linkId = Integer.parseInt(values[1]);
+        String status = values[2];
+        String linkType = values[3];
+        String address = values[4];
+        String[] extras = Arrays.copyOfRange(values,5, values.length);
+
+        synchronized (interfaceCallbacks) {
+            for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
+                callback.onLinkStatusReceived(linkId, status, linkType, address, extras);
+            }
+        }
+    }
+
+    private void onListReceived(String data) {
+        String values[] = data.split(" ");
+        String address = values[1];
+        String[] supportedProfiles = Arrays.copyOfRange(values,2, values.length);
+
+        synchronized (interfaceCallbacks) {
+            for (MelodyAudioUartInterfaceCallback callback: interfaceCallbacks) {
+                callback.onListReceived(address, supportedProfiles);
+            }
+        }
+    }
+
     private void routeResponse(String response) {
         Log.d(TAG, "Route response " + response);
-        Log.d(TAG, response);
 
         if (receivingPBDataLinkId != -1) {
+            // This is definitely pb data
             onPBDataReceived(response);
 
         } else if (response.equals(MelodyAudioUartInterface.ResponseKeys.OK)) {
@@ -319,16 +410,30 @@ public class MelodyAudioUartInterface {
         } else if (response.startsWith(ResponseTypes.PB)) {
             onReceivePBPullStatusReceived(response);
 
+        } else if (response.startsWith(ResponseKeys.NAME)) {
+            onNameReceived(response);
+
+        } else if (response.startsWith(ResponseKeys.LINK_LOSS)) {
+            onLinkLossReceived(response);
+
+        } else if (response.startsWith(ResponseKeys.STATE)) {
+            onStatusReceived(response);
+
+        } else if (response.startsWith(ResponseKeys.LINK)) {
+            onLinkStatusReceived(response);
+
+        } else if (response.startsWith(ResponseKeys.LIST)) {
+            onListReceived(response);
+
         }
     }
 
-    private void sendCommand(String command) {
-        sendCommand(command, "");
+    public void sendCommand(String command) {
+        melodyAudioUartConnection.sendData((command + NEW_LINE_CHARACTER).getBytes());
     }
 
-    private void sendCommand(String command, String args) {
-        pendingCommands.add(command);
-        melodyAudioUartConnection.sendData((command + NEW_LINE_CHARACTER).getBytes());
+    public void sendCommand(String command, String args) {
+        melodyAudioUartConnection.sendData((command + " " + args + NEW_LINE_CHARACTER).getBytes());
     }
 
     public void registerMelodyAudioCallback(MelodyAudioUartInterfaceCallback callback) {
@@ -349,17 +454,18 @@ public class MelodyAudioUartInterface {
 
             // We received an end of line notice,
             if (receivedChar == NEW_LINE_CHARACTER) {
-                routeResponse(responseLineBuilder.toString());
+                routeResponse(responseLineBuilder.toString().trim());
                 responseLineBuilder = new StringBuilder();
-            } else {
+            } else if (responseByte > -1) {
                 // Only append non end of line characters
+                // and real ascii characters
                 responseLineBuilder.append(receivedChar);
             }
         }
     }
 
     public static class MelodyAudioUartInterfaceCallback {
-        public void onAVRCPReceived(int linkId, String avrcpType) {}
+        public void onAVRCPReceived(int linkId, String avrcpType, String[] extras) {}
 
         public void onA2DPStreamStatusReceived(int linkId, String a2dpStreamStatus) {}
 
@@ -371,14 +477,24 @@ public class MelodyAudioUartInterface {
 
         public void onPreferenceReceived(String key, String value) {}
 
-        public void onOKReceived(String command) {}
+        public void onOKReceived() {}
 
-        public void onErrorReceived(String command, int code) {}
+        public void onErrorReceived(int code) {}
 
-        public void onPendingReceived(String command) {}
+        public void onPendingReceived() {}
 
         public void onPBDataReceived(int linkId, String data) {}
 
         public void onReceivePBPullStatusReceived(int linkId, String command) {}
+
+        public void onNameReceived(String address, String name) {}
+
+        public void onLinkLossReceived(int linkId) {}
+
+        public void onStatusReceived(int numConnected, boolean connectable, boolean discoverable, String bleStatus) {}
+
+        public void onLinkStatusReceived(int linkId, String status, String linkType, String address, String[] extras) {}
+
+        public void onListReceived(String address, String[] supportedProfiles) {}
     }
 }
