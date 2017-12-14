@@ -126,8 +126,8 @@ public class MelodyAudioUartConnection {
 
         connectionState = STATE_DISCONNECTED;
 
-        melodyAudioUartInterface = new MelodyAudioUartInterface(this);
         mainThread = new Handler(context.getMainLooper());
+        melodyAudioUartInterface = new MelodyAudioUartInterface(this, mainThread);
 
         // Notification channel for android devices larger than Oreo
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && notificationManager != null) {

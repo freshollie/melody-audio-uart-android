@@ -1,5 +1,6 @@
 package com.freshollie.uart.melodyaudio;
 
+import android.os.Handler;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -136,13 +137,17 @@ public class MelodyAudioUartInterface {
     // Stores the current response as we receive it
     private StringBuilder responseLineBuilder;
 
+    private final Handler mainThread;
+
     private MelodyAudioUartConnection melodyAudioUartConnection;
     private final ArrayList<MelodyAudioUartInterfaceCallback> interfaceCallbacks;
 
     private int receivingPBDataLinkId;
 
-    MelodyAudioUartInterface(MelodyAudioUartConnection connection) {
+    MelodyAudioUartInterface(MelodyAudioUartConnection connection, Handler mainThread) {
         melodyAudioUartConnection = connection;
+        this.mainThread = mainThread;
+
         interfaceCallbacks = new ArrayList<>();
         reset();
     }
@@ -454,7 +459,14 @@ public class MelodyAudioUartInterface {
 
             // We received an end of line notice,
             if (receivedChar == NEW_LINE_CHARACTER) {
-                routeResponse(responseLineBuilder.toString().trim());
+                final String responseLine = responseLineBuilder.toString().trim();
+
+                mainThread.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        routeResponse(responseLine);
+                    }
+                });
                 responseLineBuilder = new StringBuilder();
             } else if (responseByte > -1) {
                 // Only append non end of line characters

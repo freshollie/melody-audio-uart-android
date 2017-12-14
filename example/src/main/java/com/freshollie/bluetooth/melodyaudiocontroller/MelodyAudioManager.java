@@ -2,6 +2,7 @@ package com.freshollie.bluetooth.melodyaudiocontroller;
 
 import android.content.Context;
 import android.util.Log;
+import android.util.SparseArray;
 
 import com.freshollie.uart.melodyaudio.MelodyAudioUartConnection;
 import com.freshollie.uart.melodyaudio.MelodyAudioUartInterface;
@@ -20,13 +21,19 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
 
     private boolean running;
 
-    private MelodyAudioUartConnection melodyAudioUartConnection;
+    private final Context context;
+
+    private final MelodyAudioUartConnection melodyAudioUartConnection;
     private final MelodyAudioUartInterface melodyAudioUartInterface;
 
     private final PriorityQueue<String> pendingCommands;
+    private A2DPAudioSource audioSource;
 
-    public MelodyAudioManager(Context context) {
+    MelodyAudioManager(Context context) {
+        this.context = context;
+
         pendingCommands = new PriorityQueue<>();
+
 
         melodyAudioUartConnection = new MelodyAudioUartConnection(context, 115200);
         melodyAudioUartConnection.registerConnectionChangeListener(this);
@@ -48,6 +55,15 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
         if (running) {
             melodyAudioUartConnection.close();
         }
+    }
+
+    public void sendCommand(String command) {
+        melodyAudioUartInterface.sendCommand(command);
+    }
+
+
+    public void sendCommand(String command, String args) {
+        melodyAudioUartInterface.sendCommand(command, args);
     }
 
     @Override
@@ -84,8 +100,20 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
 
     @Override
     public void onAVRCPReceived(int linkId, String avrcpType, String[] extras) {
-        Log.d(TAG, "ARCP received: " + linkId + " " + avrcpType + " " + Arrays.toString(extras));
+        Log.d(TAG, "AVRCP received: " + linkId + " " + avrcpType + " " + Arrays.toString(extras));
 
+        if (audioSource != null && audioSource.getLinkId() != linkId && linkId != -1) {
+            audioSource.destroy();
+            audioSource = null;
+        }
+
+        if (audioSource == null && linkId != -1) {
+            audioSource = new A2DPAudioSource(context, this, linkId, "");
+        }
+
+        if (audioSource != null) {
+            audioSource.onAVRCPReceived(avrcpType, extras);
+        }
     }
 
     @Override
