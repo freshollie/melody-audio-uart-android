@@ -2,8 +2,6 @@ package com.freshollie.bluetooth.melodyaudiocontroller;
 
 import android.content.Context;
 import android.media.AudioManager;
-import android.media.MediaMetadata;
-import android.os.Handler;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -48,6 +46,8 @@ public class A2DPAudioSource implements AudioManager.OnAudioFocusChangeListener 
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                 );
+
+        setPlaybackState(PlaybackStateCompat.STATE_STOPPED);
 
         this.linkId = linkId;
         this.deviceName = deviceName;
@@ -101,6 +101,7 @@ public class A2DPAudioSource implements AudioManager.OnAudioFocusChangeListener 
         if (getPlaybackState() != PlaybackStateCompat.STATE_PLAYING &&
                 (hasFocus || requestAudioFocus())) {
             setPlaybackState(PlaybackStateCompat.STATE_PLAYING);
+            melodyAudioManager.sendCommand("VOLUME", "10 F");
             melodyAudioManager.sendCommand("MUSIC", getLinkId() + " " + "PLAY");
         }
     }
@@ -121,12 +122,21 @@ public class A2DPAudioSource implements AudioManager.OnAudioFocusChangeListener 
         if (hasFocus) {
             abandonAudioFocus();
         }
+
+        if (getPlaybackState() == PlaybackStateCompat.STATE_PLAYING) {
+            handlePauseRequest();
+        }
+
         setPlaybackState(PlaybackStateCompat.STATE_STOPPED);
         mediaSession.setActive(false);
         mediaSession.release();
     }
 
-    void onReceivedMetadata(String data) {
+    private void onReceivedMetadata(String data) {
+        if (!data.contains(":")) {
+            return;
+        }
+
         String key = data.substring(0, data.indexOf(":"));
         String value = data.substring(data.indexOf(":") + 1, data.length());
 
@@ -159,28 +169,27 @@ public class A2DPAudioSource implements AudioManager.OnAudioFocusChangeListener 
                 setPlaybackState(PlaybackStateCompat.STATE_PAUSED);
                 break;
             case MelodyAudioUartInterface.ResponseKeys.AVRCP_PLAY:
-                if (!hasFocus) {
-                    requestAudioFocus();
+                if (!hasFocus && requestAudioFocus()) {
+                    onAudioFocusGained();
+                    melodyAudioManager.sendCommand("VOLUME", "10 F");
                 }
                 setPlaybackState(PlaybackStateCompat.STATE_PLAYING);
 
         }
     }
 
-    private void handleAudioFocusGained() {
-
+    private void onAudioFocusGained() {
+        if (getPlaybackState() == PlaybackStateCompat.STATE_PLAYING) {
+            melodyAudioManager.sendCommand("VOLUME", "10 F");
+        }
     }
 
-    private void handleAudioFocusLost() {
-
+    private void onLossTransient() {
+        melodyAudioManager.sendCommand("MUSIC", getLinkId() + " " + "PAUSE");
     }
 
-    private void handleMute() {
-
-    }
-
-    private void handleDuck() {
-
+    private void onDuck() {
+        melodyAudioManager.sendCommand("VOLUME", "10 5");
     }
 
     private boolean requestAudioFocus() {
@@ -203,13 +212,13 @@ public class A2DPAudioSource implements AudioManager.OnAudioFocusChangeListener 
     public void onAudioFocusChange(int newFocus) {
         switch (newFocus) {
             case AudioManager.AUDIOFOCUS_GAIN:
-                handleAudioFocusGained();
+                onAudioFocusGained();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                handleMute();
+                onLossTransient();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                handleDuck();
+                onDuck();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
                 handlePauseRequest();
