@@ -1,6 +1,8 @@
 package com.freshollie.bluetooth.melodyaudiocontroller;
 
 import android.content.Context;
+import android.support.v4.media.session.PlaybackStateCompat;
+import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
 
@@ -23,19 +25,26 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
 
     private final Context context;
 
+    private final ArrayList<BluetoothSourceDevice> devices;
+
     private final MelodyAudioUartConnection melodyAudioUartConnection;
     private final MelodyAudioUartInterface melodyAudioUartInterface;
 
     private final PriorityQueue<String> pendingCommands;
-    private A2DPAudioSource audioSource;
+    private final SparseArray<A2DPAudioSource> audioSources;
+
+    private final ArrayList<String> bufferedMediaData;
 
     MelodyAudioManager(Context context) {
         this.context = context;
 
         pendingCommands = new PriorityQueue<>();
-
+        audioSources = new SparseArray<>();
+        bufferedMediaData = new ArrayList<>();
+        devices = new ArrayList<>();
 
         melodyAudioUartConnection = new MelodyAudioUartConnection(context, 115200);
+        melodyAudioUartConnection.setShowNotifications(true);
         melodyAudioUartConnection.registerConnectionChangeListener(this);
 
         melodyAudioUartInterface = melodyAudioUartConnection.getInterface();
@@ -69,6 +78,9 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
     @Override
     public void onLinkStatusReceived(int linkId, String status, String linkType, String address, String[] extras) {
         Log.d(TAG, "Link status " + linkId + " " + address);
+        if (linkType.equals("AVRCP")) {
+            if ()
+        }
     }
 
     @Override
@@ -85,7 +97,7 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
     public void onListReceived(String address, String[] supportedProfiles) {
         Log.d(TAG, "Saved device: " + address);
         Log.d(TAG, "Getting name");
-        melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.NAME, address);
+        sendCommand(MelodyAudioUartInterface.Commands.NAME, address);
     }
 
     @Override
@@ -102,16 +114,29 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
     public void onAVRCPReceived(int linkId, String avrcpType, String[] extras) {
         Log.d(TAG, "AVRCP received: " + linkId + " " + avrcpType + " " + Arrays.toString(extras));
 
-        if (audioSource != null && audioSource.getLinkId() != linkId && linkId != -1) {
-            audioSource.destroy();
-            audioSource = null;
-        }
+        if (linkId == -1) {
+            // We don't have a link Id, so see who this data belongs to
+            for (int audioSourceIndex = 0; audioSourceIndex < audioSources.size(); audioSourceIndex++) {
+                A2DPAudioSource audioSource = audioSources.valueAt(audioSourceIndex);
+                if (audioSource.getPlaybackState() == PlaybackStateCompat.STATE_PLAYING) {
+                    audioSource.onAVRCPReceived(avrcpType, extras);
+                    return;
+                }
+            }
 
-        if (audioSource == null && linkId != -1) {
-            audioSource = new A2DPAudioSource(context, this, linkId, "");
-        }
+            // We couldn't find a valid playing source so buffer this data
+            bufferedMediaData.add(avrcpType + " " + TextUtils.join(" ", extras));
+            // And send a command asking for up to date info
+            if (bufferedMediaData.size() < 2) {
+                sendCommand(MelodyAudioUartInterface.Commands.STATUS);
+            }
+        } else {
+            A2DPAudioSource audioSource = audioSources.get(linkId);
+            if (audioSource == null) {
+                audioSource = new A2DPAudioSource(context, this, linkId, "");
+                audioSources.put(linkId, audioSource);
+            }
 
-        if (audioSource != null) {
             audioSource.onAVRCPReceived(avrcpType, extras);
         }
     }
@@ -127,9 +152,9 @@ public class MelodyAudioManager extends MelodyAudioUartInterface.MelodyAudioUart
     public void onConnectionStateChange(int newState) {
         if (newState == MelodyAudioUartConnection.STATE_CONNECTED) {
             Log.d(TAG, "Connected");
-            melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.LIST);
-            melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.STATUS);
-            melodyAudioUartInterface.sendCommand(MelodyAudioUartInterface.Commands.GET, MelodyAudioUartInterface.ConfigKeys.NAME);
+            sendCommand(MelodyAudioUartInterface.Commands.LIST);
+            sendCommand(MelodyAudioUartInterface.Commands.STATUS);
+            sendCommand(MelodyAudioUartInterface.Commands.GET, MelodyAudioUartInterface.ConfigKeys.NAME);
         }
     }
 }
